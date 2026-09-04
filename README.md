@@ -269,6 +269,106 @@ the evidence genuinely supports it.
 
 ---
 
+## Watching your squad on a schedule
+
+Team news breaks on a Friday afternoon, not when you happen to open a terminal.
+`watch_availability.py` is built to run unattended and to be worth reading when
+it does:
+
+```bash
+python watch_availability.py              # what changed since the last run
+python watch_availability.py --flagged    # plus everyone still carrying a flag
+python watch_availability.py --full       # the whole fifteen, changed or not
+python watch_availability.py --json report.json
+python watch_availability.py --no-web     # FPL's own flags only
+```
+
+Two things separate it from `python -m fplai news`:
+
+- **It is cheap.** It touches the bootstrap endpoint and the RSS feeds and
+  nothing else — no fixtures, no ~626 player histories, no optimiser. A daily
+  run on a quiet day costs one small request.
+- **It has a memory.** Each run records what it believed about each of your
+  players in `.availability_state.json` (gitignored), and the next run reports
+  the *diff*: `fit -> doubt`, `chance 75% -> 25%`, `return GW? -> GW6`, or best
+  of all `FPL news cleared`. A daily report that reprints the same fifteen rows
+  is a report you stop reading.
+
+```
+  CHANGED SINCE THE LAST RUN (2):
+
+    PLAYER          CLUB POS AVAILABILITY                 GW3  WHY IT IS HERE
+  ------------------------------------------------------------------------------
+  ! Mateta          CRY  FWD injured, back GW6             0%  FPL news changed
+      fpl: Hamstring injury - Expected back 11 Oct
+  ! Caicedo         CHE  MID doubt, 75% next              75%  fit -> doubt
+      fpl: Unspecified injury - 75% chance of playing
+```
+
+The `GW3` column is the availability multiplier the model would apply to that
+player's minutes in the coming gameweek: `100%` plays, `0%` cannot. The `WHERE`
+column comes from the `fielding` block of your squad file — `XI`, `B1`/`B2`/`B3`
+in autosub order, `BGK` for the reserve keeper, with `C` and `V` for the
+armbands — and the XI sorts ahead of the bench, because a doubt over your
+captain is a different problem from the same doubt over your third bench
+outfielder.
+
+Exit codes are the point of the script, because they let a scheduler stay quiet:
+
+| Exit | Meaning |
+|---|---|
+| 0 | something changed — worth reporting |
+| 1 | nothing new since the last run — a caller should say nothing |
+| 2 | could not run: no `my_squad.json`, or it is still the template |
+
+Pair it with `deadline_gate.py`, which exits 0 only when the next deadline is
+inside 30 hours, and you get a cheap daily scan plus a full check on the day
+that matters:
+
+```bash
+if python deadline_gate.py; then
+  python watch_availability.py --flagged   # deadline is close: the full picture
+else
+  python watch_availability.py             # quiet day: only what changed
+fi
+```
+
+### As Claude Code scheduled tasks
+
+Two tasks, because one time of day cannot cover both kinds of deadline.
+
+`fpl-availability-watch` runs daily at 09:00 and then does what a script cannot:
+for every player the watcher flags, it
+web-searches the latest team news, because FPL's flags and the RSS feeds both
+lag the manager's press conference. On a deadline run it sweeps all fifteen
+players, XI and bench alike, searching **by club** rather than by player — team
+news is published per club, so one search covers everyone you own there and also
+catches what a player-name search misses, like a squad omission or a rest ahead
+of a midweek European game. It reports a verdict per player — likely starts,
+rotation risk, bench risk, genuine doubt, will not play — and notifies only when
+a squad player's availability actually moved and a deadline is close. On a quiet
+day it searches only what the watcher says has changed, so the daily run stays
+cheap.
+
+`fpl-deadline-final-check` runs daily at 16:00 but gates itself on
+`deadline_gate.py --hours 5`, so it speaks only on days when the deadline is
+that same evening — roughly once a gameweek, and otherwise it prints one line
+and stops. It exists because most managers face the media around midday: for a
+Friday-evening deadline the 09:00 run happens *before* the press conferences for
+most of a typical squad, so it structurally cannot see them. This one sweeps the
+clubs again afterwards, three hours before you have to decide, and always
+sweeps — a watcher reporting "no change" at 16:00 has said nothing about what
+was said at noon. A Saturday-lunchtime deadline needs none of this: the 09:00
+run that morning is already after Friday's pressers.
+
+Both share `.availability_state.json`, so the afternoon task's "what changed"
+means *changed since this morning* — which is exactly what a final check wants.
+
+Both are read-only. Nothing is ever submitted to FPL, and transfer plans stay
+with `plan_week.py`, where you can see the alternatives side by side.
+
+---
+
 ## Tuning it
 
 The model is meant to be argued with. Every knob is a flag:
@@ -318,16 +418,24 @@ mirror the exact shapes the live APIs return: every FPL news string above, the
 per-gameweek curves they imply, the nearest-keyword headline classifier, transfer
 window detection, settling-in decay, and the depth chart. No network needed.
 
+`test_watch.py` pins the scheduled watcher: club-local squad resolution (two
+players called Sarr must not collapse into one), unresolved names surfacing
+rather than being silently dropped, and the change detection — a flag that is
+simply a day older is not news, but `fit -> doubt` and `injured -> fit` both
+are.
+
 ### Local Python
 ```bash
 python tests/test_synthetic.py
 python tests/test_availability.py
+python tests/test_watch.py
 ```
 
 ### Docker
 ```bash
 docker run --rm --entrypoint python fpl-ai tests/test_synthetic.py
 docker run --rm --entrypoint python fpl-ai tests/test_availability.py
+docker run --rm --entrypoint python fpl-ai tests/test_watch.py
 ```
 
 ---

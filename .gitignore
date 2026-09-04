@@ -1,6 +1,9 @@
 # Local squad state (personal data)
 my_squad.json
 
+# What watch_availability.py remembered about your squad on its last run
+.availability_state.json
+
 # Python
 __pycache__/
 *.py[cod]
