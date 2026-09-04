@@ -1,0 +1,40 @@
+{
+  "_comment": "Template. Copy to my_squad.json and replace with your own squad -- plan_week.py reads that file, so no entry id or screenshots are needed. Names must match FPL web names; clubs are the 3-letter FPL short codes.",
+  "updated": "2026-08-15",
+  "state": {
+    "planning_gw": 1,
+    "bank": 0.0,
+    "free_transfers": 1,
+    "_ft_note": "Free transfers carry over, +1 per week, capped at 5.",
+    "squad_value": 100.0
+  },
+  "squad": [
+    {"name": "First GK",    "club": "XXX", "pos": "GKP", "price": 5.0},
+    {"name": "Bench GK",    "club": "XXX", "pos": "GKP", "price": 4.0},
+    {"name": "Defender 1",  "club": "XXX", "pos": "DEF", "price": 6.0},
+    {"name": "Defender 2",  "club": "XXX", "pos": "DEF", "price": 5.5},
+    {"name": "Defender 3",  "club": "XXX", "pos": "DEF", "price": 5.0},
+    {"name": "Defender 4",  "club": "XXX", "pos": "DEF", "price": 4.5},
+    {"name": "Defender 5",  "club": "XXX", "pos": "DEF", "price": 4.0},
+    {"name": "Midfielder 1","club": "XXX", "pos": "MID", "price": 12.0},
+    {"name": "Midfielder 2","club": "XXX", "pos": "MID", "price": 8.5},
+    {"name": "Midfielder 3","club": "XXX", "pos": "MID", "price": 7.0},
+    {"name": "Midfielder 4","club": "XXX", "pos": "MID", "price": 6.0},
+    {"name": "Midfielder 5","club": "XXX", "pos": "MID", "price": 5.0},
+    {"name": "Forward 1",   "club": "XXX", "pos": "FWD", "price": 9.0},
+    {"name": "Forward 2",   "club": "XXX", "pos": "FWD", "price": 7.0},
+    {"name": "Forward 3",   "club": "XXX", "pos": "FWD", "price": 5.5}
+  ],
+  "fielding": {
+    "xi": ["First GK", "Defender 1", "Defender 2", "Defender 3",
+           "Midfielder 1", "Midfielder 2", "Midfielder 3", "Midfielder 4",
+           "Forward 1", "Forward 2", "Forward 3"],
+    "bench_order": ["Midfielder 5", "Defender 4", "Defender 5"],
+    "bench_gk": "Bench GK",
+    "captain": "Midfielder 1",
+    "vice": "Forward 1"
+  },
+  "history": [
+    {"gw": 1, "in": null, "out": null, "hit": 0, "note": "season start"}
+  ]
+}

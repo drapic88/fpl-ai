@@ -1,0 +1,10 @@
+services:
+  fpl-ai:
+    build: .
+    image: fpl-ai
+    volumes:
+      - fpl-cache:/app/.cache
+      - ./:/workspace
+
+volumes:
+  fpl-cache:

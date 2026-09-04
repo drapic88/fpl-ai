@@ -1,0 +1,17 @@
+# Local squad state (personal data)
+my_squad.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+env/
+.pytest_cache/
+
+# Caches and logs
+.cache/
+*.log
+cookie.txt
