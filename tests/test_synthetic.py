@@ -189,6 +189,30 @@ def main():
     print(f"transfer plan ok: {plan['transfers']} move(s), hit -{int(plan['hit'])}, "
           f"projected {plan['proj_next']} pts")
 
+    # A wildcard is not rationed by free transfers. The FT-banking constraint used
+    # to subtract the wildcard week's moves from the next week's stock, which -- with
+    # hits pinned to zero and ft floored at 1 -- silently capped a wildcard at
+    # free_transfers moves, so `--wildcard` reproduced the ordinary plan.
+    wc_opt = optimize.SolveOptions(bank=15.0, free_transfers=1, max_transfers=1,
+                                   wildcard=True)
+    wc = optimize.plan_transfers(df, proj, gws, current, selling, wc_opt)
+    check(wc)
+    assert wc["hit"] == 0, "a wildcard week must never charge a points hit"
+    assert wc["transfers"] > 1, (
+        "a wildcard must be free to make more than free_transfers moves, got "
+        f"{wc['transfers']}"
+    )
+    # ...and it must be at least as good as the same week played without the chip.
+    plain = optimize.plan_transfers(
+        df, proj, gws, current, selling,
+        optimize.SolveOptions(bank=15.0, free_transfers=1, max_transfers=1),
+    )
+    assert wc["objective"] >= plain["objective"] - 1e-6, (
+        "a wildcard's feasible set contains the one-move plan's, so it cannot score worse"
+    )
+    print(f"wildcard ok: {wc['transfers']} move(s), hit -{int(wc['hit'])}, "
+          f"objective {wc['objective']:.2f} vs plain {plain['objective']:.2f}")
+
     # With zero budget movement and no free transfers, doing nothing must be allowed.
     idle = optimize.plan_transfers(
         df, proj, gws, current, selling,
