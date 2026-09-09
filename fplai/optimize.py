@@ -178,7 +178,14 @@ def plan_transfers(
             prob += bank[k] >= 0
 
             # FT banking accumulation (2026/27 rule: up to 5 FTs can be saved)
-            prob += ft[k] <= ft[k - 1] - n_in[k - 1] + hits[k - 1] + 1
+            if k == 1 and opt.wildcard:
+                # A wildcard rebuilds the squad without spending free transfers, so
+                # the saved ones carry into the next gameweek untouched. Subtracting
+                # n_in here instead would drive ft[1] below its lower bound of 1 and
+                # silently cap the wildcard itself at opt.free_transfers moves.
+                prob += ft[k] <= ft[k - 1] + 1
+            else:
+                prob += ft[k] <= ft[k - 1] - n_in[k - 1] + hits[k - 1] + 1
 
         # Transfer count & limits
         n_in[k] = pulp.lpSum(buy[k].values())
