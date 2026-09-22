@@ -38,6 +38,7 @@ from dataclasses import dataclass, field
 import requests
 
 from . import api
+from ._text import fold_letters
 
 # --------------------------------------------------------------------------- categories
 
@@ -339,10 +340,15 @@ _STRIP = re.compile(r"[^a-z ]+")
 
 
 def normalise(name: str) -> str:
-    """Lowercase, strip accents and punctuation, so 'Rodriguez' matches either spelling."""
+    """Lowercase, strip accents and punctuation, so 'Rodriguez' matches either spelling.
+
+    The letter fold has to happen before _STRIP, not after: _STRIP deletes
+    anything outside [a-z ], so an unfolded 'ß' is dropped outright and
+    'Groß' arrives as 'gro' -- matching neither 'gross' nor itself.
+    """
     decomposed = unicodedata.normalize("NFKD", str(name))
     plain = "".join(c for c in decomposed if not unicodedata.combining(c))
-    return _STRIP.sub(" ", plain.lower()).strip()
+    return _STRIP.sub(" ", fold_letters(plain)).strip()
 
 
 #: Surnames that are also ordinary English words or extremely common. Matching on
@@ -353,6 +359,11 @@ AMBIGUOUS_SURNAMES = {
     "long", "white", "black", "brown", "green", "day", "west", "banks", "brooks",
     "rice", "sterling", "phillips", "james", "lewis", "martin", "richards", "murphy",
     "smith", "taylor", "jones", "wright", "roberts", "scott", "turner", "cooper",
+    # Only reachable as a surname token since 'ß' started folding to 'ss'. Before
+    # that 'Groß' normalised to the 3-letter 'gro' and never cleared the length
+    # bar; now it collides with "gross revenue" and the like, so it takes the same
+    # treatment as the other everyday words -- his full name still matches.
+    "gross",
 }
 
 _WEB_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (

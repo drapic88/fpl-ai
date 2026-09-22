@@ -50,6 +50,9 @@ ELEMENTS = [
     element(4, "O'Reilly", 2, "Nico", "O'Reilly"),
     # Same surname, different club: the club must be what separates them.
     element(5, "Sarr", 2, "Malick", "Sarr"),
+    # Letters NFKD will not touch, spelt the way FPL spells them.
+    element(6, "Gro\u00df", 1, "Pascal", "Gro\u00df"),
+    element(7, "\u00d8degaard", 1, "Martin", "\u00d8degaard"),
 ]
 
 
@@ -62,6 +65,53 @@ def test_resolution_matches_accents_and_apostrophes():
     assert not missing, missing
     assert [e["id"] for _, e in found] == [3, 4]
     print("accented and apostrophised names resolve ok")
+
+
+def test_resolution_folds_letters_nfkd_leaves_alone():
+    """NFKD only decomposes accents, so 'Gro\u00df' and '\u00d8degaard' come through it
+    unchanged and a squad file typed on an English keyboard misses them. Both
+    scripts resolve the same file, so a miss here silently drops a player from
+    the watcher as well as costing the planner a transfer."""
+    squad = [
+        {"name": "Gross", "club": "CRY", "pos": "MID"},
+        {"name": "Odegaard", "club": "CRY", "pos": "MID"},
+    ]
+    found, missing = watch.resolve_squad(ELEMENTS, TEAMS, squad)
+    assert not missing, missing
+    assert [e["id"] for _, e in found] == [6, 7]
+
+    # The FPL spelling has to keep working -- the fold is a second way in, not a
+    # replacement for the first.
+    found, missing = watch.resolve_squad(
+        ELEMENTS, TEAMS, [{"name": "Gro\u00df", "club": "CRY", "pos": "MID"}])
+    assert not missing and found[0][1]["id"] == 6
+
+    assert watch.norm("Gro\u00df") == watch.norm("Gross") == "gross"
+    assert watch.norm("\u00d8degaard") == watch.norm("Odegaard") == "odegaard"
+    # Capitals fold too: the sharp S and the slashed O both have upper-case forms.
+    assert watch.norm("GRO\u1e9e") == "gross"
+    assert watch.norm("\u00d8DEGAARD") == "odegaard"
+    print("letters NFKD leaves alone resolve ok")
+
+
+def test_every_matcher_normalises_identically():
+    """Four call sites compare a typed or scraped name against FPL's spelling:
+    the planner and watcher resolve the squad file, the news layer matches
+    headlines, the external layer matches Understat rows. They share one fold
+    table, and the day they disagree is the day a player resolves in one and
+    vanishes in another."""
+    import plan_week
+    from fplai import external, news
+
+    for name in ["Gro\u00df", "Gross", "\u00d8degaard", "Odegaard", "Gu\u00e9hi", "Guehi",
+                 "O'Reilly", "Jo\u00e3o Pedro", "  Sels  ", "Havertz"]:
+        assert plan_week.norm(name) == watch.norm(name), name
+        # The fplai pair also strip spacing and punctuation, so compare the fold
+        # itself rather than the whole pipeline.
+        assert news.normalise(name) == external.normalise(name), name
+    assert news.normalise("Gro\u00df") == watch.norm("Gross") == "gross"
+    assert external.normalise("\u00d8degaard") == plan_week.norm("Odegaard") == "odegaard"
+    print("all four matchers normalise identically ok")
 
 
 def test_resolution_is_club_local():
@@ -245,6 +295,8 @@ def main():
     test_fielding_roles_mark_the_xi_and_the_armband()
     test_xi_sorts_ahead_of_the_bench()
     test_resolution_matches_accents_and_apostrophes()
+    test_resolution_folds_letters_nfkd_leaves_alone()
+    test_every_matcher_normalises_identically()
     test_resolution_is_club_local()
     test_unresolvable_player_is_reported_not_dropped()
     test_ageing_news_is_not_a_change()

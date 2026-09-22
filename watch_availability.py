@@ -36,6 +36,7 @@ import unicodedata
 from pathlib import Path
 
 from fplai import api, news as news_mod
+from fplai._text import fold_letters
 
 SQUAD_FILE = Path(__file__).with_name("my_squad.json")
 STATE_FILE = Path(__file__).with_name(".availability_state.json")
@@ -82,10 +83,15 @@ def load_squad(path: Path) -> dict:
 
 
 def norm(s: str) -> str:
-    """Fold accents and punctuation so 'Guehi' matches 'Guehi' and "O'Reilly" matches."""
+    """Fold accents, awkward letters and punctuation so a typed name matches FPL's.
+
+    NFKD does the accented Latin letters -- 'Guéhi' folds to 'Guehi'. The rest
+    is `fplai._text.fold_letters`, shared with the news and external matchers so
+    that one squad file cannot resolve in one of them and vanish in another.
+    """
     s = unicodedata.normalize("NFKD", str(s))
     stripped = "".join(c for c in s if not unicodedata.combining(c))
-    return stripped.lower().replace("'", "").replace(".", "").strip()
+    return fold_letters(stripped).replace("'", "").replace(".", "").strip()
 
 
 def next_gameweek(bootstrap: dict) -> int:

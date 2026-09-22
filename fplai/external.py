@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 import requests
 
 from . import api
+from ._text import fold_letters
 
 ENDPOINT = "https://understat.com/main/getPlayersStats/"
 
@@ -113,9 +114,11 @@ _STRIP = re.compile(r"[^a-z ]+")
 
 
 def normalise(name: str) -> str:
+    """Both sides of the index are folded the same way, so 'Groß' in an Understat
+    row and 'Gross' on an FPL element meet at the same key."""
     decomposed = unicodedata.normalize("NFKD", str(name))
     plain = "".join(c for c in decomposed if not unicodedata.combining(c))
-    return re.sub(r"\s+", " ", _STRIP.sub(" ", plain.lower())).strip()
+    return re.sub(r"\s+", " ", _STRIP.sub(" ", fold_letters(plain))).strip()
 
 
 def _num(value, default: float = 0.0) -> float:
