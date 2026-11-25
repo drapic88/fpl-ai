@@ -18,3 +18,6 @@ env/
 .cache/
 *.log
 cookie.txt
+
+# Gameweek snapshots (snapshot.py): personal squad and plans, regenerable only before each deadline
+snapshots/

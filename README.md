@@ -438,6 +438,27 @@ only, so earlier seasons decide *who* counts as elite, not what they did. Beware
 survivorship: managers picked for their rank today are, by construction, the ones
 whose early calls came off.
 
+### Snapshots: keeping what FPL overwrites
+
+The backtest can say nothing about `ep_blend` or the news model, because FPL
+rewrites `ep_next`, injury news and chance of playing as the season moves on, and
+nobody keeps the pre-deadline versions. `snapshot.py` keeps them, from now on:
+
+```bash
+python snapshot.py           # before a deadline: what FPL and this model said; also saves finished gameweeks
+python snapshot.py --list    # what has been saved
+```
+
+Before a deadline (within 30 hours of it, never after) it saves FPL's bootstrap
+and fixtures, this model's projections with both the production settings and
+the backtest's candidate settings, `my_squad.json` and the planner's
+recommendation. Once a gameweek is finished and checked it saves the points and
+the effective ownership of the elite managers listed in
+`snapshots/elite_entries.json`. Nothing is overwritten; a second run before the
+same deadline gets its own folder. About 300 KB per gameweek, under
+`snapshots/` (gitignored). It is not scheduled: run it by hand before each
+deadline, ideally after the last team-news check.
+
 ---
 
 ## Testing changes
@@ -463,7 +484,9 @@ when anything from gameweek N onward is changed, a perfect ranking must score th
 oracle, the leaky historical `xP` must never be scored, and the haul probability,
 xG weighting and defensive contributions behave as described. `test_elite.py`
 checks effective ownership (bench 0, captain 2, triple captain 3), the
-consistency score and the manager tables.
+consistency score and the manager tables. `test_snapshot.py` checks that a
+pre-deadline snapshot is refused after the deadline, never overwrites one, and
+that results are saved only for gameweeks FPL has checked.
 
 ### Local Python
 ```bash
@@ -472,6 +495,7 @@ python tests/test_availability.py
 python tests/test_watch.py
 python tests/test_backtest.py
 python tests/test_elite.py
+python tests/test_snapshot.py
 ```
 
 ### Docker
@@ -481,6 +505,7 @@ docker run --rm --entrypoint python fpl-ai tests/test_availability.py
 docker run --rm --entrypoint python fpl-ai tests/test_watch.py
 docker run --rm --entrypoint python fpl-ai tests/test_backtest.py
 docker run --rm --entrypoint python fpl-ai tests/test_elite.py
+docker run --rm --entrypoint python fpl-ai tests/test_snapshot.py
 ```
 
 ---
