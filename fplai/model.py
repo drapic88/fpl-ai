@@ -19,6 +19,7 @@ three are modelled per gameweek rather than once for the whole horizon:
 from __future__ import annotations
 
 import datetime as dt
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 import math
@@ -36,6 +37,12 @@ GOAL_PTS = {1: 6.0, 2: 6.0, 3: 5.0, 4: 4.0}
 CS_PTS = {1: 4.0, 2: 4.0, 3: 1.0, 4: 0.0}
 ASSIST_PTS = 3.0
 CARD_PENALTY = 1.0
+
+# Defensive contributions (from 2025/26): 2 points for reaching the threshold in
+# one match -- clearances, blocks, interceptions and tackles for a defender, plus
+# ball recoveries for a midfielder or forward. Goalkeepers are not eligible.
+DEFCON_PTS = 2.0
+DEFCON_THRESHOLD = {2: 10, 3: 12, 4: 12}
 
 #: How much a substitute appearance counts toward "he is in the manager's plans",
 #: on a scale where a start is 1.0 and being left out of the squad is 0.0.
@@ -64,6 +71,15 @@ class ModelConfig:
     # How much of a new signing's pre-move starting record still applies at his
     # new club. 1.0 trusts it fully; 0 treats him as a complete unknown.
     new_signing_start_pull: float = 0.6
+    # Weight on expected goals and assists (xG, xA) against the goals and assists
+    # actually scored, when rating a player's attacking output. 0 keeps the
+    # original behaviour; xG is the steadier signal over a handful of matches.
+    xg_weight: float = 0.0
+    # Score defensive contributions (DEFCON_THRESHOLD). Off keeps the original
+    # behaviour, which predates the rule.
+    defcon: bool = False
+    # Points in one gameweek that count as a haul, for `p_haul`.
+    haul_threshold: float = 10.0
     overrides: dict = field(default_factory=dict)
     # Sub-models. Each carries its own knobs; see the modules for what they mean.
     news: news_mod.NewsConfig = field(default_factory=news_mod.NewsConfig)
@@ -139,8 +155,15 @@ def _rates_from_history(
     curr_cs = 0.0
     curr_saves = 0.0
     curr_yc = 0.0
+    curr_xg = 0.0
+    curr_xa = 0.0
     curr_starts = 0
     curr_matches = len(hist_curr)
+    # Defensive contributions: weighted share of 60-minute matches at the threshold.
+    dc_thr = DEFCON_THRESHOLD.get(pos_id)
+    dc_hits = 0.0
+    dc_w = 0.0
+    dc_n = 0
 
     if hist_curr:
         weight = 1.0
@@ -154,6 +177,12 @@ def _rates_from_history(
                 curr_cs += weight * float(m.get("clean_sheets", 0) or 0)
                 curr_saves += weight * float(m.get("saves", 0) or 0)
                 curr_yc += weight * float(m.get("yellow_cards", 0) or 0)
+                curr_xg += weight * float(m.get("expected_goals", m.get("goals_scored", 0)) or 0)
+                curr_xa += weight * float(m.get("expected_assists", m.get("assists", 0)) or 0)
+                if dc_thr and mins >= 60 and "defensive_contribution" in m:
+                    dc_hits += weight * (float(m.get("defensive_contribution") or 0) >= dc_thr)
+                    dc_w += weight
+                    dc_n += 1
                 if mins >= 55:
                     curr_starts += 1
                 total_w += weight
@@ -166,6 +195,8 @@ def _rates_from_history(
     past_cs = 0.0
     past_saves = 0.0
     past_pts = 0.0
+    past_xg = 0.0
+    past_xa = 0.0
 
     if hist_past:
         seasons = hist_past[-len(cfg.seasons_weight):][::-1]
@@ -178,10 +209,21 @@ def _rates_from_history(
             # When specific counts are present in past seasons, use them
             past_goals += w * float(s.get("goals_scored", 0) or 0)
             past_assists += w * float(s.get("assists", 0) or 0)
+            past_xg += w * float(s.get("expected_goals", s.get("goals_scored", 0)) or 0)
+            past_xa += w * float(s.get("expected_assists", s.get("assists", 0)) or 0)
             past_cs += w * float(s.get("clean_sheets", 0) or 0)
             past_saves += w * float(s.get("saves", 0) or 0)
 
+    # Attacking output: actual goals and assists, shaded toward xG and xA.
+    xw = float(min(1.0, max(0.0, cfg.xg_weight)))
+    curr_goals = (1.0 - xw) * curr_goals + xw * curr_xg
+    curr_assists = (1.0 - xw) * curr_assists + xw * curr_xa
+    past_goals = (1.0 - xw) * past_goals + xw * past_xg
+    past_assists = (1.0 - xw) * past_assists + xw * past_xa
+
     return {
+        "curr_dc_rate": (dc_hits / dc_w) if dc_w > 0 else None,
+        "curr_dc_n": float(dc_n),
         "curr_mins": curr_mins,
         "curr_matches": float(curr_matches),
         "curr_starts": float(curr_starts),
@@ -487,6 +529,8 @@ def build(
                 "past_goals_p90": past_goals_p90,
                 "past_assists_p90": past_assists_p90,
                 "past_saves_p90": rates["past_saves_p90"],
+                "curr_dc_rate": rates["curr_dc_rate"],
+                "curr_dc_n": rates["curr_dc_n"],
                 "news": e.get("news", ""),
                 # --- availability & transfer context -------------------------
                 "avail": float(sig.curve.get(start_gw, 1.0)),
@@ -588,6 +632,21 @@ def build(
         0.0,
     )
 
+    # Chance of reaching the defensive-contribution threshold in a full match,
+    # shrunk toward the position's average by the number of such matches seen.
+    df["curr_dc_rate"] = pd.to_numeric(df["curr_dc_rate"], errors="coerce")
+    df["p_defcon"] = 0.0
+    for pos_id in DEFCON_THRESHOLD:
+        m = df["pos_id"] == pos_id
+        seen = df[m & df["curr_dc_rate"].notna()]
+        prior = (
+            float(np.average(seen["curr_dc_rate"], weights=seen["curr_dc_n"]))
+            if len(seen) and seen["curr_dc_n"].sum() > 0 else 0.0
+        )
+        n = df.loc[m, "curr_dc_n"].fillna(0.0)
+        w = n / (n + cfg.shrink_inseason)
+        df.loc[m, "p_defcon"] = (w * df.loc[m, "curr_dc_rate"].fillna(prior) + (1 - w) * prior).clip(0, 1)
+
     ftab = fixture_table(fixtures_raw, start_gw, cfg.horizon)
 
     # ----------------------------------------------------------------------- Depth chart per gameweek
@@ -618,6 +677,9 @@ def build(
 
     # ----------------------------------------------------------------------- Component Projection
     proj: dict[int, dict[int, float]] = {}
+    # The coming gameweek's components per player, one tuple per match, so the
+    # chance of a haul can be worked out from them rather than from the mean.
+    components: dict[int, list[tuple[float, float, float, float, float]]] = {}
 
     for idx, r in enumerate(df.itertuples()):
         team = teams[r.team_id]
@@ -669,6 +731,12 @@ def build(
                 if r.pos_id == 1:
                     pts_saves = (r.saves_rate / 3.0) * (xmins_gw / 90.0)
 
+                # 5b. Defensive contributions, for a full match at the threshold.
+                p_dc = 0.0
+                if cfg.defcon and r.pos_id in DEFCON_THRESHOLD:
+                    p_dc = float(r.p_defcon)
+                pts_defcon = DEFCON_PTS * p_dc * p_play_60
+
                 # 6. Yellow Card Penalty
                 pts_cards = -0.15 * (xmins_gw / 90.0)
 
@@ -683,7 +751,12 @@ def build(
                     + 0.08 * p_play_60
                 )
 
-                match_pts = pts_app + pts_attack + pts_cs + pts_concede + pts_saves + pts_cards + pts_bonus
+                match_pts = (pts_app + pts_attack + pts_cs + pts_concede + pts_saves
+                             + pts_cards + pts_bonus + pts_defcon)
+                if gw == start_gw:
+                    components.setdefault(r.id, []).append(
+                        (p_play_60, exp_goals, exp_assists, p_cs, p_dc)
+                    )
                 if np.isfinite(match_pts) and match_pts > 0:
                     total_pts += match_pts
 
@@ -707,9 +780,74 @@ def build(
             proj[pid] = {g: float(val) for g in gws}
 
     df["proj_next"] = df["id"].map(lambda i: proj[i].get(start_gw, 0.0)).fillna(0.0)
+    df["xg_next"] = df["id"].map(lambda i: sum(c[1] for c in components.get(i, [])))
+    df["xa_next"] = df["id"].map(lambda i: sum(c[2] for c in components.get(i, [])))
+    df["p_haul"] = [
+        haul_probability(components.get(int(i), []), int(p), cfg.haul_threshold)
+        for i, p in zip(df["id"], df["pos_id"])
+    ]
     df["proj_horizon"] = df["id"].map(lambda i: sum(proj[i].values())).fillna(0.0)
     df["value"] = np.where(df["price"] > 0, df["proj_horizon"] / df["price"], 0.0)
     return df, proj
+
+
+def _poisson_pmf(mean: float, kmax: int) -> list[float]:
+    """P(0..kmax-1) and the rest of the tail lumped into the last cell."""
+    mean = max(0.0, mean)
+    out, term = [], math.exp(-mean)
+    for k in range(kmax):
+        out.append(term)
+        term *= mean / (k + 1)
+    out[-1] += max(0.0, 1.0 - sum(out))
+    return out
+
+
+def _match_points_pmf(p60: float, goals: float, assists: float, p_cs: float,
+                      p_dc: float, pos_id: int) -> dict[int, float]:
+    """Distribution of one match's points from its expected components.
+
+    A sketch, not a simulator: given a full match, goals and assists are Poisson
+    around their per-full-match means, the clean sheet and the defensive
+    contribution are coin flips, and bonus follows the returns. A shorter
+    appearance is scored as 1 point and never hauls. Saves, cards and the
+    goals-conceded penalty are left out -- they move the mean a little and the
+    chance of 10+ points hardly at all.
+    """
+    if p60 <= 0.0:
+        return {0: 1.0}
+    g_full = min(4.0, goals / p60)
+    a_full = min(3.0, assists / p60)
+    gp, cs_pts = GOAL_PTS[pos_id], CS_PTS[pos_id]
+    pg, pa = _poisson_pmf(g_full, 6), _poisson_pmf(a_full, 5)
+    out: dict[int, float] = defaultdict(float)
+    for g, qg in enumerate(pg):
+        for a, qa in enumerate(pa):
+            for cs, qcs in ((1, p_cs), (0, 1.0 - p_cs)):
+                if g + a:
+                    bonus = min(3, 2 * g + a)
+                else:
+                    bonus = 1 if cs and pos_id in DEFENSIVE else 0
+                for dc, qdc in ((1, p_dc), (0, 1.0 - p_dc)):
+                    pts = 2 + gp * g + ASSIST_PTS * a + cs_pts * cs + DEFCON_PTS * dc + bonus
+                    out[int(pts)] += p60 * qg * qa * qcs * qdc
+    out[1] += 1.0 - p60
+    return out
+
+
+def haul_probability(matches: list[tuple[float, float, float, float, float]], pos_id: int,
+                     threshold: float = 10.0) -> float:
+    """Chance a player scores at least `threshold` in a gameweek (double gameweeks add up)."""
+    if not matches:
+        return 0.0
+    dist: dict[int, float] = {0: 1.0}
+    for m in matches:
+        one = _match_points_pmf(*m, pos_id)
+        nxt: dict[int, float] = defaultdict(float)
+        for a, pa in dist.items():
+            for b, pb in one.items():
+                nxt[a + b] += pa * pb
+        dist = nxt
+    return float(min(1.0, sum(p for pts, p in dist.items() if pts >= threshold)))
 
 
 def load_overrides(path: str, df: pd.DataFrame | None = None) -> dict:

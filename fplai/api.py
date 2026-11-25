@@ -83,6 +83,29 @@ def entry_picks(entry_id: int, event: int, ttl: int = 600) -> dict:
     return _get(f"entry/{entry_id}/event/{event}/picks/", f"picks_{entry_id}_{event}", ttl)
 
 
+def entry_history(entry_id: int, ttl: int = 86400) -> dict:
+    """A manager's season so far (`current`), past-season finishes (`past`) and chips."""
+    return _get(f"entry/{entry_id}/history/", f"entryhist_{entry_id}", ttl)
+
+
+def entry_transfers(entry_id: int, ttl: int = 3600) -> list[dict]:
+    """Every transfer a manager has made this season, with the gameweek it counted for."""
+    return _get(f"entry/{entry_id}/transfers/", f"entryxfers_{entry_id}", ttl)
+
+
+def league_standings(league_id: int, page: int = 1, ttl: int = 3600) -> dict:
+    """One page (50 rows) of a classic league. League 314 is the overall ranking."""
+    return _get(
+        f"leagues-classic/{league_id}/standings/?page_standings={page}",
+        f"league_{league_id}_p{page}", ttl,
+    )
+
+
+def event_live(event: int, ttl: int = 3600) -> dict:
+    """Every player's points and stats for one gameweek."""
+    return _get(f"event/{event}/live/", f"live_{event}", ttl)
+
+
 def my_team(entry_id: int, cookie: str, ttl: int = 0) -> dict:
     """Your live squad including selling prices, bank and free transfers.
 

@@ -5,6 +5,8 @@
     python -m fplai players --pos MID      # ranked shortlist
     python -m fplai news                   # who is injured, suspended, or in the headlines
     python -m fplai signings               # who has just moved, and will they play
+    python -m fplai backtest               # replay past gameweeks and score the projections
+    python -m fplai elite                  # what the best managers did this season
 """
 
 from __future__ import annotations
@@ -336,6 +338,54 @@ def cmd_signings(args):
     print("  SETTLE is the minutes discount for having only just arrived.")
 
 
+def cmd_backtest(args):
+    from . import backtest as bt
+
+    missing = [s for s in args.seasons if not (bt.HISTORY_DIR / f"merged_gw_{s}.csv").exists()]
+    if missing:
+        print(f"Missing season files in {bt.HISTORY_DIR}: " + ", ".join(missing))
+        print("Each is data/<season>/gws/merged_gw.csv from the vaastav/Fantasy-Premier-League "
+              "repository, saved as merged_gw_<season>.csv. Nothing is downloaded for you.")
+        sys.exit(2)
+    loaded: list = []
+    for name in args.seasons:
+        loaded.append(bt.load_vaastav(name, loaded[-2:]))
+    base = dict(ep_blend=0.0, xg_weight=args.xg_weight, defcon=args.defcon)
+    configs = {"model": model.ModelConfig(**base)}
+    print("Replaying gameweeks (FPL's historical xP is left out: it is recorded after the gameweek)...")
+    res = pd.concat([bt.run(s, configs, verbose=args.verbose) for s in loaded[1:] or loaded])
+    pd.set_option("display.width", 200)
+    print(bt.summary(res).to_string(index=False))
+    if args.json:
+        res.to_csv(args.json, index=False)
+
+
+def cmd_elite(args):
+    from . import elite
+
+    bs = api.bootstrap()
+    last = max((e["id"] for e in bs["events"] if e.get("finished")), default=0)
+    cfg = elite.EliteConfig(scan_pages=args.pages, n_current=args.n_current,
+                            n_consistent=args.n_consistent)
+    print("Finding elite managers (slow the first time; every response is cached)...")
+    sel = elite.select_managers(cfg)
+    dec = elite.fetch_decisions(list(sel["entry"]), last, cfg)
+    points = {gw: {int(e["id"]): float(e["stats"]["total_points"])
+                   for e in api.event_live(gw)["elements"]} for gw in range(1, last + 1)}
+    groups = dict(zip(sel["entry"], sel["group"]))
+    mgw = elite.manager_gameweeks(dec, points, groups)
+    names = {int(e["id"]): e["web_name"] for e in bs["elements"]}
+    for g in ("current", "consistent"):
+        part = mgw[mgw["group"].isin([g, "both"])]
+        print(f"\n  {g.upper()} ({part['entry'].nunique()} managers)")
+        for k, v in elite.summarise(part).items():
+            print(f"    {k:<24}{v}")
+    eo = elite.eo_by_gw(dec).get(last, {})
+    print(f"\n  Elite effective ownership, GW{last}:")
+    for el, v in sorted(eo.items(), key=lambda kv: -kv[1])[:15]:
+        print(f"    {names.get(el, el):<16}{v:6.0f}%")
+
+
 def cmd_clear(args):
     print(f"Removed {api.clear_cache()} cached files.")
 
@@ -417,6 +467,19 @@ def main(argv=None):
                    help="restrict to one transfer window")
     g.add_argument("--top", type=int, default=30)
     g.set_defaults(func=cmd_signings)
+
+    b = sub.add_parser("backtest", help="replay past gameweeks and score the projections")
+    b.add_argument("--seasons", nargs="+", default=["2023-24", "2024-25", "2025-26"],
+                   help="oldest first; the first one only supplies past-season records")
+    b.add_argument("--xg-weight", type=float, default=0.0)
+    b.add_argument("--defcon", action="store_true", help="score defensive contributions")
+    b.set_defaults(func=cmd_backtest)
+
+    el = sub.add_parser("elite", help="what the best managers did this season")
+    el.add_argument("--pages", type=int, default=20, help="50 managers a page from the top")
+    el.add_argument("--n-current", type=int, default=100)
+    el.add_argument("--n-consistent", type=int, default=100)
+    el.set_defaults(func=cmd_elite)
 
     sub.add_parser("clear-cache").set_defaults(func=cmd_clear)
 

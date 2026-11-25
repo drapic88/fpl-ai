@@ -406,6 +406,40 @@ Rows without a `gw` apply to every gameweek in the horizon.
 
 ---
 
+## Backtest and elite managers
+
+Two read-only reports for arguing with the model on evidence rather than taste.
+
+```bash
+python -m fplai backtest                    # replay 2024-25 and 2025-26, gameweek by gameweek
+python -m fplai backtest --xg-weight 0.5 --defcon
+python -m fplai elite                       # what the best managers did this season
+```
+
+`backtest` projects every past gameweek from data before it only, then scores
+the ranking against the points actually scored. The metrics are about the top of
+the list -- the decision is "who scores most this week", not who has the best
+season average: `pick_pts` (actual points of the top five per position),
+`captain_pts`, `hit10`, `haul_prec`, plus `spearman` over the whole pool, and
+`oracle_pick_pts` for the best possible. It needs the per-gameweek
+`merged_gw.csv` files of the public vaastav/Fantasy-Premier-League repository in
+`~/.cache/fpl-ai/history/`, named `merged_gw_<season>.csv`; it never downloads
+them itself.
+
+Two things cannot be replayed and are left out of every predictor alike: team
+news (everyone counts as available) and FPL's fixture-difficulty ratings (team
+strength is rebuilt from rolling xG). FPL's historical `xP` column is not used at
+all: it is recorded after the gameweek and already contains its points.
+
+`elite` takes the top of the overall league and splits it into the best ranks
+this season and the best median finish over past seasons, then reads their
+picks, transfers, chips and captains. FPL keeps decisions for the current season
+only, so earlier seasons decide *who* counts as elite, not what they did. Beware
+survivorship: managers picked for their rank today are, by construction, the ones
+whose early calls came off.
+
+---
+
 ## Testing changes
 
 Fabricates a fake league offline and asserts every FPL rule holds: 15 players,
@@ -424,11 +458,20 @@ rather than being silently dropped, and the change detection — a flag that is
 simply a day older is not news, but `fit -> doubt` and `injured -> fit` both
 are.
 
+`test_backtest.py` guards the backtest: a projection for gameweek N must not move
+when anything from gameweek N onward is changed, a perfect ranking must score the
+oracle, the leaky historical `xP` must never be scored, and the haul probability,
+xG weighting and defensive contributions behave as described. `test_elite.py`
+checks effective ownership (bench 0, captain 2, triple captain 3), the
+consistency score and the manager tables.
+
 ### Local Python
 ```bash
 python tests/test_synthetic.py
 python tests/test_availability.py
 python tests/test_watch.py
+python tests/test_backtest.py
+python tests/test_elite.py
 ```
 
 ### Docker
@@ -436,6 +479,8 @@ python tests/test_watch.py
 docker run --rm --entrypoint python fpl-ai tests/test_synthetic.py
 docker run --rm --entrypoint python fpl-ai tests/test_availability.py
 docker run --rm --entrypoint python fpl-ai tests/test_watch.py
+docker run --rm --entrypoint python fpl-ai tests/test_backtest.py
+docker run --rm --entrypoint python fpl-ai tests/test_elite.py
 ```
 
 ---
@@ -456,10 +501,10 @@ docker run --rm --entrypoint python fpl-ai tests/test_watch.py
 ## Known limits
 
 - No price-change modelling (team value growth is ignored).
-- Premier League xG is not used yet. FPL now publishes `expected_goals_per_90`
-  and `expected_assists_per_90`, which would sharpen the in-season rates the same
-  way Understat's numbers already sharpen new signings'. Foreign-league xG *is*
-  used, for players with no PL record.
+- Premier League xG (`ModelConfig.xg_weight`) and defensive contributions
+  (`ModelConfig.defcon`) are both available but **off by default** until the
+  backtest results below are accepted. Foreign-league xG *is* used, for players
+  with no PL record.
 - Effective ownership is not modelled, so it plays to maximise points, not to
   beat a specific mini-league.
 - The news feeds are English-language general football RSS. They catch the big
