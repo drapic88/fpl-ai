@@ -381,7 +381,7 @@ The model is meant to be argued with. Every knob is a flag:
 | `--ep-blend` | How much to trust FPL's own numbers |
 | `--max-transfers` | Cap on moves; the optimiser already prices `-4` hits itself |
 | `--rotation-weight` | 0 = trust each player's own history, 1 = enforce a realistic number of starters per club. Default 0.75 |
-| `ModelConfig.start_prior_matches` | Prior strength, in matches, for "is he a starter". Lower reacts harder to one benching. Default 1.5 |
+| `ModelConfig.start_prior_matches` | Prior strength, in matches, for "is he a starter". Lower reacts harder to one benching. Default 3.0 |
 | `ModelConfig.new_signing_start_pull` | How much of a new signing's pre-move starting record still applies. Default 0.6 |
 | `--new-signing-days` | How recently a player must have joined to count as a new signing. Default 90 |
 | `--no-news` | Skip the public news feeds. FPL's own injury flags are still parsed |
@@ -412,7 +412,7 @@ Two read-only reports for arguing with the model on evidence rather than taste.
 
 ```bash
 python -m fplai backtest                    # replay 2024-25 and 2025-26, gameweek by gameweek
-python -m fplai backtest --xg-weight 0.5 --defcon
+python -m fplai backtest --xg-weight 0 --no-defcon   # the settings before Nov 2026
 python -m fplai elite                       # what the best managers did this season
 ```
 
@@ -526,10 +526,13 @@ docker run --rm --entrypoint python fpl-ai tests/test_snapshot.py
 ## Known limits
 
 - No price-change modelling (team value growth is ignored).
-- Premier League xG (`ModelConfig.xg_weight`) and defensive contributions
-  (`ModelConfig.defcon`) are both available but **off by default** until the
-  backtest results below are accepted. Foreign-league xG *is* used, for players
-  with no PL record.
+- Premier League xG is blended half-and-half with actual goals and assists
+  (`ModelConfig.xg_weight` 0.5), and defensive contributions are scored
+  (`ModelConfig.defcon`). Both, with stronger shrinkage and a stronger "is he a
+  starter" prior, were adopted on backtest evidence: tuned on 2024-25, they
+  picked 1.6% better on 2025-26 and 4.4% better on 2026-27 GW2-11 -- a real but
+  small gain. Snapshots keep the old settings' projections alongside, so the
+  switch can be checked on live gameweeks.
 - Effective ownership is not modelled, so it plays to maximise points, not to
   beat a specific mini-league.
 - The news feeds are English-language general football RSS. They catch the big

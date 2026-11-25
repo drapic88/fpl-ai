@@ -14,7 +14,8 @@ So two kinds of snapshot are kept, one directory per gameweek:
         bootstrap.json.gz    FPL's own view: ep_next, news, chance of playing,
                              penalty and set-piece order, prices, ownership
         fixtures.json.gz
-        projections.csv.gz   this model's projections, production and candidate settings
+        projections.csv.gz   this model's projections, production and previous settings
+                             (the `cand_` columns)
         squad.json           my_squad.json as it stood: the squad, XI and armbands
         plan.json            what the planner recommended
     snapshots/gw12/post/                 after the gameweek has finished
@@ -46,11 +47,11 @@ ELITE_FILE = "elite_entries.json"
 PRE_WINDOW_HOURS = 30.0      # take a pre snapshot only this close to the deadline
 MIN_GAP_HOURS = 2.0          # and not again within this long of the last one
 
-# The settings production runs with (plan_week.py), and the candidate the
-# backtest preferred, so both can be scored on the same real gameweeks later.
+# The settings production runs with (plan_week.py), and the ones it replaced on
+# the backtest's evidence, so the switch can be checked on real gameweeks.
 PRODUCTION = dict(ep_blend=0.35)
-CANDIDATE = dict(ep_blend=0.35, inseason_match_decay=0.92, shrink_inseason=8.0,
-                 shrink_matches=12.0, start_prior_matches=3.0, xg_weight=0.5, defcon=True)
+CANDIDATE = dict(ep_blend=0.35, shrink_inseason=4.0, shrink_matches=6.0,
+                 start_prior_matches=1.5, xg_weight=0.0, defcon=False)
 PROJECTION_COLS = [
     "id", "name", "team", "pos", "price", "status", "news", "news_category", "avail",
     "selected_by", "ep_next", "p_start", "xmins", "proj_next", "proj_horizon", "p_haul",

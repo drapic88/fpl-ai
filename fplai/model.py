@@ -53,8 +53,10 @@ SUB_APPEARANCE_CREDIT = 0.35
 class ModelConfig:
     horizon: int = 5              # how many gameweeks to look ahead
     decay: float = 0.86           # weight of gameweek n+1 relative to n
-    shrink_matches: float = 6.0   # prior strength, in matches, for past rate
-    shrink_inseason: float = 4.0  # prior strength for current season matches
+    # Prior strengths, in matches. Backtested (tuned on 2024-25, checked on 2025-26
+    # and 2026-27): trusting a few matches less than 6 / 4 did picks better.
+    shrink_matches: float = 12.0  # prior strength, in matches, for past rate
+    shrink_inseason: float = 8.0  # prior strength for current season matches
     home_bonus: float = 1.06
     fdr_weight: float = 0.06      # per point of FPL fixture difficulty away from 3
     strength_exp: float = 0.50    # sensitivity to team strength ratings
@@ -64,20 +66,20 @@ class ModelConfig:
     inseason_match_decay: float = 0.92  # EWMA decay per match in current season
     base_home_goals: float = 1.55 # Premier League long-term average home goals
     base_away_goals: float = 1.25 # Premier League long-term average away goals
-    # Prior strength, in matches, for "is he a starter". At 1.5 the opening
-    # weekend's team sheet carries 40% of the weight against the pre-season prior --
-    # enough to notice a benching, not so much that one substitution rewrites a role.
-    start_prior_matches: float = 1.5
+    # Prior strength, in matches, for "is he a starter". At 3.0 one team sheet
+    # carries 25% of the weight against the pre-season prior and the last four
+    # carry 57%. The backtest preferred this over 1.5, which over-reacted to a
+    # single benching.
+    start_prior_matches: float = 3.0
     # How much of a new signing's pre-move starting record still applies at his
     # new club. 1.0 trusts it fully; 0 treats him as a complete unknown.
     new_signing_start_pull: float = 0.6
     # Weight on expected goals and assists (xG, xA) against the goals and assists
-    # actually scored, when rating a player's attacking output. 0 keeps the
-    # original behaviour; xG is the steadier signal over a handful of matches.
-    xg_weight: float = 0.0
-    # Score defensive contributions (DEFCON_THRESHOLD). Off keeps the original
-    # behaviour, which predates the rule.
-    defcon: bool = False
+    # actually scored, when rating a player's attacking output. 0 trusts goals
+    # alone; xG is the steadier signal over a handful of matches.
+    xg_weight: float = 0.5
+    # Score defensive contributions (DEFCON_THRESHOLD), the rule since 2025/26.
+    defcon: bool = True
     # Points in one gameweek that count as a haul, for `p_haul`.
     haul_threshold: float = 10.0
     overrides: dict = field(default_factory=dict)

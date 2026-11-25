@@ -133,8 +133,9 @@ def check_haul_probability() -> None:
 
 
 def check_xg_and_defcon() -> None:
-    cfg0 = model.ModelConfig(ep_blend=0.0)
+    cfg0 = model.ModelConfig(ep_blend=0.0, xg_weight=0.0, defcon=False)
     cfg1 = model.ModelConfig(ep_blend=0.0, xg_weight=1.0)
+    assert model.ModelConfig().defcon and model.ModelConfig().xg_weight == 0.5, "the backtested defaults"
     unlucky = [{"minutes": 90, "goals_scored": 0, "assists": 0, "expected_goals": 0.8,
                 "expected_assists": 0.2, "clean_sheets": 0, "saves": 0, "yellow_cards": 0}] * 6
     r0 = model._rates_from_history([], unlucky, 4, cfg0)
@@ -152,12 +153,12 @@ def check_xg_and_defcon() -> None:
         write(fake_season(), Path(d), "2030-31")
         s = bt.load_vaastav("2030-31", directory=Path(d))
         off = bt.project(s, 6, cfg0).set_index("id")
-        on = bt.project(s, 6, model.ModelConfig(ep_blend=0.0, defcon=True)).set_index("id")
+        on = bt.project(s, 6, model.ModelConfig(ep_blend=0.0, xg_weight=0.0, defcon=True)).set_index("id")
     defs = off.index[(off["pos"] == "DEF") & (off["p_defcon"] > 0.05) & (off["proj_next"] > 0)]
     gks = off.index[off["pos"] == "GKP"]
     assert len(defs) and (on.loc[defs, "proj_next"] > off.loc[defs, "proj_next"]).all()
     assert (on.loc[gks, "proj_next"] - off.loc[gks, "proj_next"]).abs().max() < 1e-9
-    print("xG weighting and defensive contributions ok; both are off by default")
+    print("xG weighting and defensive contributions ok; both on by default")
 
 
 def main():

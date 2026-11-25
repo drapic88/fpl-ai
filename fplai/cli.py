@@ -350,7 +350,9 @@ def cmd_backtest(args):
     loaded: list = []
     for name in args.seasons:
         loaded.append(bt.load_vaastav(name, loaded[-2:]))
-    base = dict(ep_blend=0.0, xg_weight=args.xg_weight, defcon=args.defcon)
+    base = dict(ep_blend=0.0, defcon=not args.no_defcon)
+    if args.xg_weight is not None:
+        base["xg_weight"] = args.xg_weight
     configs = {"model": model.ModelConfig(**base)}
     print("Replaying gameweeks (FPL's historical xP is left out: it is recorded after the gameweek)...")
     res = pd.concat([bt.run(s, configs, verbose=args.verbose) for s in loaded[1:] or loaded])
@@ -471,8 +473,8 @@ def main(argv=None):
     b = sub.add_parser("backtest", help="replay past gameweeks and score the projections")
     b.add_argument("--seasons", nargs="+", default=["2023-24", "2024-25", "2025-26"],
                    help="oldest first; the first one only supplies past-season records")
-    b.add_argument("--xg-weight", type=float, default=0.0)
-    b.add_argument("--defcon", action="store_true", help="score defensive contributions")
+    b.add_argument("--xg-weight", type=float, help="override the model's xG weight (default 0.5)")
+    b.add_argument("--no-defcon", action="store_true", help="leave defensive contributions out")
     b.set_defaults(func=cmd_backtest)
 
     el = sub.add_parser("elite", help="what the best managers did this season")
